@@ -1,0 +1,92 @@
+# 🚀 ServiceHub Pro Setup & Deployment Guide
+
+This guide walks you through deploying your Next.js frontend to **Vercel** and linking it with a production **Supabase** backend.
+
+---
+
+## Part 1: Setting up Production Supabase
+
+Before deploying the frontend, you must prepare the database using all the SQL schemas we've written.
+
+### 1. Create the Database
+1. Go to [Supabase](https://supabase.com/) and create a new project.
+2. Once provisioned, navigate to the **SQL Editor** in the left sidebar.
+3. You must run the SQL schema files **in this order** to respect foreign key constraints:
+   - `supabase/schema.sql` (Profiles & Roles)
+   - `supabase/jobs_schema.sql` (Jobs Board)
+   - `supabase/proposals_schema.sql` (Job Applications)
+   - `supabase/contracts_schema.sql` (Escrow Contracts & RPCs)
+   - `supabase/submissions_schema.sql` (File Submissions)
+   - `supabase/rls_master.sql` (Row Level Security execution)
+   - `supabase/automations.sql` (pg_cron scheduled jobs)
+
+### 2. Configure Authentication
+1. Navigate to **Authentication** > **Providers** and ensure **Email** is enabled.
+2. Navigate to **Authentication** > **URL Configuration**.
+3. Under **Site URL**, add your intended production domain (e.g., `https://servicehub-pro.vercel.app`).
+4. Under **Redirect URLs**, add `https://servicehub-pro.vercel.app/auth/callback`. *(Remember to update these exact domains once Vercel assigns you a URL!)*
+
+---
+
+## Part 2: Deploying to Vercel
+
+Vercel is the creator of Next.js and provides the smoothest deployment experience.
+
+### 1. Push Code to GitHub
+Ensure all your local code is pushed to a repository on **GitHub**, **GitLab**, or **Bitbucket**.
+
+```bash
+git add .
+git commit -m "Ready for production"
+git push origin main
+```
+
+### 2. Import to Vercel
+1. Log in to [Vercel](https://vercel.com).
+2. Click **Add New...** > **Project**.
+3. Locate your `ServiceHub-Pro` repository and click **Import**.
+4. The Framework Preset should automatically detect **Next.js**.
+
+### 3. Setup Environment Variables
+Before clicking Deploy, expand the **Environment Variables** section. You need to pull these keys from your Supabase dashboard (**Project Settings** > **API**):
+
+| Variable Name | Value | Purpose |
+| :--- | :--- | :--- |
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://xxxx.supabase.co` | Supabase Project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `eyJhbG...` | Public API Key from Supabase |
+| `SUPABASE_SERVICE_ROLE_KEY` | `eyJhbG...` | Secret API Key (Found in Supabase API settings) |
+| `CRON_SECRET` | e.g. `super_secret_123` | A random strong password you create. Used to secure the `/api/cron/reminders` endpoint. |
+
+> [!WARNING]  
+> Never expose your `SUPABASE_SERVICE_ROLE_KEY` inside client-side components. It is meant exclusively for server-side Next.js route handlers to bypass RLS.
+
+### 4. Deploy!
+Click **Deploy**. Vercel will build the Tailwind styles, bundle the Next.js server actions, and launch your application. 
+
+---
+
+## Part 3: Post-Deployment Steps
+
+### 1. Fix the Cron Job Webhook
+Now that Vercel has assigned you a real domain (e.g., `https://your-app.vercel.app`), you need to update the Supabase Automation.
+
+1. Go back to the Supabase **SQL Editor**.
+2. Run this quick update to point `pg_net` to your live Vercel function:
+
+```sql
+create or replace function public.trigger_daily_reminders()
+returns void
+language plpgsql security definer
+as $$
+begin
+  perform net.http_post(
+    url := 'https://your-app.vercel.app/api/cron/reminders',
+    headers := '{"Content-Type": "application/json", "Authorization": "Bearer YOUR_CRON_SECRET"}'::jsonb,
+    body := '{"event": "daily_reminders"}'::jsonb
+  );
+end;
+$$;
+```
+
+> [!TIP]
+> Congrats! Your platform is now live. You can access the unified metrics by creating an account and starting to browse your marketplace.
